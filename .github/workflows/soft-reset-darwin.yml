@@ -65,27 +65,30 @@ jobs:
           cache: false
 
       - name: Prefetch sing-openvpn pin
+        env:
+          GIT_TERMINAL_PROMPT: "0"
         run: |
           set -euo pipefail
           pin=$(awk '/github\.com\/sagernet\/sing-openvpn / { print $2; exit }' go.mod)
           sha=${pin##*-}
           echo "Using ${pin} (${sha})"
-          # Create the module VCS cache from SagerNet main, then fetch the pin SHA
-          # (fork-network commit; go only fetches heads/tags by default).
+          # proxy.golang.org cannot serve this fork-network SHA, and `go` only
+          # fetches heads/tags, so seed the VCS cache then fetch the pin.
           head_sha=$(git ls-remote https://github.com/SagerNet/sing-openvpn.git HEAD | awk '{ print $1 }')
           go mod download "github.com/sagernet/sing-openvpn@${head_sha}"
           vcs_dir=""
           for dir in "$(go env GOMODCACHE)/cache/vcs/"*; do
             url=$(git -C "${dir}" remote get-url origin 2>/dev/null || true)
             case "${url}" in
-              *sagernet/sing-openvpn*) vcs_dir=${dir} ;;
+              *sagernet/sing-openvpn*|*SagerNet/sing-openvpn*) vcs_dir=${dir} ;;
             esac
           done
           if [[ -z "${vcs_dir}" ]]; then
             echo "sing-openvpn VCS cache not found" >&2
             exit 1
           fi
-          git -C "${vcs_dir}" fetch origin "${sha}"
+          git -C "${vcs_dir}" fetch origin "${sha}" \
+            || git -C "${vcs_dir}" fetch https://github.com/foyoodo/sing-openvpn.git "${sha}"
           go mod download
 
       - name: Set local version tag
