@@ -95,8 +95,11 @@ jobs:
             echo "sing-openvpn VCS cache not found" >&2
             exit 1
           fi
-          git -C "${vcs_dir}" fetch origin "${sha}" \
-            || git -C "${vcs_dir}" fetch https://github.com/foyoodo/sing-openvpn.git "${sha}"
+          # GitHub rejects git-fetch of a 12-char unadvertised object (exit 128).
+          # The pin is a branch tip on foyoodo/sing-openvpn; fetch those heads.
+          git -C "${vcs_dir}" fetch https://github.com/foyoodo/sing-openvpn.git \
+            "+refs/heads/*:refs/remotes/foyoodo/*"
+          git -C "${vcs_dir}" cat-file -e "${sha}^{commit}"
           go mod download
 
       - name: Set local version tag
