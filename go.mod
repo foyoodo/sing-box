@@ -198,3 +198,7 @@ require (
 	lukechampine.com/blake3 v1.3.0 // indirect
 	zombiezen.com/go/capnproto2 v2.18.2+incompatible // indirect
 )
+
+// Overlay SagerNet/sing-openvpn@81c434fbafa9 (server soft-reset reply) on
+// v1.14.4's 432d37b. Upstream has not merged this; see SagerNet/sing-openvpn#12.
+replace github.com/sagernet/sing-openvpn => ./third_party/sing-openvpn
