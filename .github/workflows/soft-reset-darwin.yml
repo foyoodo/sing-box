@@ -142,6 +142,6 @@ jobs:
           body: ""
           draft: false
           prerelease: false
-          make_latest: false
+          make_latest: true
           fail_on_unmatched_files: true
           files: dist/${{ env.DIR_NAME }}.tar.gz
