@@ -1,0 +1,133 @@
+# Native darwin/arm64 build for v*-soft-reset packages.
+# Matches the 1.14.3-soft-reset asset: DEFAULT_BUILD_TAGS (includes
+# with_naive_outbound), CGO, Go 1.27.1, LICENSE + sing-box tarball.
+name: Soft-reset Darwin ARM64
+
+on:
+  push:
+    tags:
+      - "v*-soft-reset"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without the v prefix"
+        required: false
+        default: "1.14.4-soft-reset"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: soft-reset-darwin-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build darwin/arm64
+    runs-on: macos-latest
+    env:
+      GOPROXY: direct
+      GOPRIVATE: github.com/sagernet/sing-openvpn
+      GOTOOLCHAIN: local
+      CGO_ENABLED: "1"
+      GOOS: darwin
+      GOARCH: arm64
+    steps:
+      - name: Require Apple Silicon
+        run: test "$(uname -m)" = "arm64"
+
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+
+      - name: Set version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${INPUT_VERSION#v}"
+          fi
+          if [[ ! "${VERSION}" =~ ^[0-9A-Za-z._-]+$ ]]; then
+            echo "invalid version: ${VERSION}" >&2
+            exit 1
+          fi
+          {
+            echo "VERSION=${VERSION}"
+            echo "DIR_NAME=sing-box-${VERSION}-darwin-arm64"
+          } >> "${GITHUB_ENV}"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.1"
+          cache: false
+
+      - name: Prefetch sing-openvpn pin
+        run: |
+          set -euo pipefail
+          pin=$(awk '/github\.com\/sagernet\/sing-openvpn / { print $2; exit }' go.mod)
+          sha=${pin##*-}
+          echo "Using ${pin} (${sha})"
+          # Create the module VCS cache from SagerNet main, then fetch the pin SHA
+          # (fork-network commit; go only fetches heads/tags by default).
+          head_sha=$(git ls-remote https://github.com/SagerNet/sing-openvpn.git HEAD | awk '{ print $1 }')
+          go mod download "github.com/sagernet/sing-openvpn@${head_sha}"
+          vcs_dir=""
+          for dir in "$(go env GOMODCACHE)/cache/vcs/"*; do
+            url=$(git -C "${dir}" remote get-url origin 2>/dev/null || true)
+            case "${url}" in
+              *sagernet/sing-openvpn*) vcs_dir=${dir} ;;
+            esac
+          done
+          if [[ -z "${vcs_dir}" ]]; then
+            echo "sing-openvpn VCS cache not found" >&2
+            exit 1
+          fi
+          git -C "${vcs_dir}" fetch origin "${sha}"
+          go mod download
+
+      - name: Set local version tag
+        run: git tag "v${VERSION}" -f
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          tags=$(cat release/DEFAULT_BUILD_TAGS)
+          ldflags_shared=$(cat release/LDFLAGS)
+          mkdir -p dist
+          go build -trimpath -o dist/sing-box \
+            -tags "${tags}" \
+            -ldflags "-X 'github.com/sagernet/sing-box/constant.Version=${VERSION}' ${ldflags_shared} -s -w -buildid=" \
+            ./cmd/sing-box
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          cd dist
+          mkdir -p "${DIR_NAME}"
+          cp ../LICENSE "${DIR_NAME}"
+          cp sing-box "${DIR_NAME}"
+          tar -czvf "${DIR_NAME}.tar.gz" "${DIR_NAME}"
+          rm -r "${DIR_NAME}" sing-box
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.DIR_NAME }}
+          path: dist/${{ env.DIR_NAME }}.tar.gz
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: ""
+          draft: false
+          prerelease: false
+          make_latest: false
+          fail_on_unmatched_files: true
+          files: dist/${{ env.DIR_NAME }}.tar.gz
