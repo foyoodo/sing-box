@@ -7,6 +7,9 @@ on:
   push:
     tags:
       - "v*-soft-reset"
+  pull_request:
+    branches:
+      - "*-soft-reset"
   workflow_dispatch:
     inputs:
       version:
@@ -42,12 +45,17 @@ jobs:
       - name: Set version
         env:
           INPUT_VERSION: ${{ inputs.version }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
           set -euo pipefail
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             VERSION="${GITHUB_REF_NAME#v}"
-          else
+          elif [[ -n "${INPUT_VERSION}" ]]; then
             VERSION="${INPUT_VERSION#v}"
+          elif [[ -n "${BASE_REF}" ]]; then
+            VERSION="${BASE_REF#v}"
+          else
+            VERSION="1.14.4-soft-reset"
           fi
           if [[ ! "${VERSION}" =~ ^[0-9A-Za-z._-]+$ ]]; then
             echo "invalid version: ${VERSION}" >&2
